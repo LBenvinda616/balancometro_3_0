@@ -1,8 +1,9 @@
 <script lang="ts">
   import Counter from "./lib/Counter.svelte";
+  import SAFTSummary from "./lib/SAFTSummary.svelte";
 
   type MenuItem = {
-    id: "counter";
+    id: "counter" | "saft";
     label: string;
     description: string;
   };
@@ -12,6 +13,11 @@
       id: "counter",
       label: "Contador",
       description: "Ferramenta de contagem simples e precisa.",
+    },
+    {
+      id: "saft",
+      label: "Resumo SAF‑T",
+      description: "Agregue 12 ficheiros SAF‑T e exporte o resumo.",
     },
   ];
 
@@ -72,7 +78,7 @@
 
     <section class="content">
       <div class="placeholder">
-        <p>Escolha "Contador" para iniciar.</p>
+        <p>Escolha "Contador" ou "Resumo SAF‑T" para iniciar.</p>
       </div>
     </section>
   {:else if activeItem.id === "counter"}
@@ -193,6 +199,34 @@
                   >
                 </div>
               </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+  {:else if activeItem.id === "saft"}
+    <section class="workspace workspace--fixed">
+      <header class="workspace__header">
+        <div>
+          <p class="eyebrow">Ferramenta</p>
+          <h2>{activeItem.label}</h2>
+        </div>
+        <button class="ghost" on:click={closeItem}>Voltar ao menu</button>
+      </header>
+
+      <div class="workspace__grid">
+        <div class="workspace__main">
+          <div class="panel fill">
+            <SAFTSummary />
+          </div>
+        </div>
+        <aside class="workspace__aside">
+          <div class="panel fill">
+            <div class="aside__section">
+              <h3>Como começar</h3>
+              <p class="hint">
+                Carregue 12 ficheiros SAF‑T (.xml), um por mês.
+              </p>
             </div>
           </div>
         </aside>
