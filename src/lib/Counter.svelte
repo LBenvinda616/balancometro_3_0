@@ -29,12 +29,18 @@
   }>();
 
   const parseNumero = (valor: unknown): number => {
-    if (typeof valor === "number") return valor;
+    if (typeof valor === "number") return Number.isFinite(valor) ? valor : NaN;
     if (typeof valor === "string") {
-      const limpo = valor.trim();
-      const normalizado = limpo.includes(",")
-        ? limpo.replace(/\./g, "").replace(",", ".")
-        : limpo; // se não há vírgula, assume ponto como decimal
+      // Remove espaços e quaisquer símbolos não numéricos (ex.: €)
+      const semEspacos = valor.trim().replace(/\s+/g, "");
+      // Mantém apenas dígitos, vírgulas, pontos e sinal negativo
+      const apenasNumeros = semEspacos.replace(/[^0-9,.-]/g, "");
+
+      // Se houver vírgula, trata-a como separador decimal e remove pontos (milhares)
+      const normalizado = apenasNumeros.includes(",")
+        ? apenasNumeros.replace(/\./g, "").replace(",", ".")
+        : apenasNumeros;
+
       const numero = Number(normalizado);
       return Number.isFinite(numero) ? numero : NaN;
     }
@@ -72,9 +78,26 @@
       const [, ...dados] = matriz;
 
       const convertidas: Linha[] = dados
-        .map((linha) => {
+        .map((linha, idx) => {
           const [id, descricao, quantidadeBruta, precoBruto, totalBruto] =
             linha;
+
+          if (idx < 3) {
+            console.log("[Import debug] raw:", {
+              id,
+              descricao,
+              quantidadeBruta,
+              precoBruto,
+              totalBruto,
+              types: {
+                id: typeof id,
+                descricao: typeof descricao,
+                quantidadeBruta: typeof quantidadeBruta,
+                precoBruto: typeof precoBruto,
+                totalBruto: typeof totalBruto,
+              },
+            });
+          }
 
           // Ignora linhas completamente vazias
           if (
@@ -88,6 +111,14 @@
           const quantidade = parseNumero(quantidadeBruta);
           const preco = parseNumero(precoBruto);
           const totalValor = parseNumero(totalBruto);
+
+          if (idx < 3) {
+            console.log("[Import debug] parsed:", {
+              quantidade,
+              preco,
+              totalValor,
+            });
+          }
 
           return {
             id: id ?? "",
@@ -238,13 +269,32 @@
   };
 
   const aplicarFiltros = () => {
-    const idQ = (props.filtros?.id ?? "").trim();
-    const descQ = (props.filtros?.descricao ?? "").trim();
-    const minQ = (props.filtros?.precoMin ?? "").trim();
-    const maxQ = (props.filtros?.precoMax ?? "").trim();
-    const min = minQ ? parseNumero(minQ) : NaN;
-    const max = maxQ ? parseNumero(maxQ) : NaN;
+    const rawId = props.filtros?.id as unknown;
+    const rawDesc = props.filtros?.descricao as unknown;
+    const rawMin = props.filtros?.precoMin as unknown;
+    const rawMax = props.filtros?.precoMax as unknown;
 
+    const idQ =
+      typeof rawId === "string"
+        ? rawId.trim()
+        : rawId != null
+          ? String(rawId)
+          : "";
+    const descQ =
+      typeof rawDesc === "string"
+        ? rawDesc.trim()
+        : rawDesc != null
+          ? String(rawDesc)
+          : "";
+
+    const min =
+      rawMin == null || (typeof rawMin === "string" && rawMin.trim() === "")
+        ? NaN
+        : parseNumero(rawMin as any);
+    const max =
+      rawMax == null || (typeof rawMax === "string" && rawMax.trim() === "")
+        ? NaN
+        : parseNumero(rawMax as any);
     linhasFiltradas = linhas.filter((l) => {
       // ID
       if (idQ) {
