@@ -21,7 +21,6 @@
     precoMax?: string;
   };
   const props = $props<{
-    edicaoAtiva: boolean;
     ficheiro: File | null;
     filtros?: Filtros;
     onResumo?: (r: Resumo) => void;
@@ -169,6 +168,20 @@
   let sortAsc: boolean = $state(true);
   let linhasFiltradas: Linha[] = $state([]);
   let linhaSeleccionada: number | null = $state(null);
+  // Conjunto de linhas em edição (por ID) para permitir edição por linha via duplo clique
+  let editando = $state(new Set<string>());
+
+  const idKey = (id: string | number) => (id != null ? String(id) : "");
+  const alternarEdicaoRow = (id: string | number) => {
+    const key = idKey(id);
+    const novo = new Set(editando);
+    if (novo.has(key)) {
+      novo.delete(key);
+    } else {
+      novo.add(key);
+    }
+    editando = novo;
+  };
 
   const sortBy = (key: keyof Linha) => {
     if (sortKey === key) {
@@ -318,9 +331,11 @@
     aplicarFiltros();
   });
 
-  const onQuantidadeChange = (idx: number, valor: string) => {
+  const onQuantidadeChange = (id: string | number, valor: string) => {
     const n = parseNumero(valor);
     const quantidade = Number.isFinite(n) && n >= 0 ? n : 0;
+    const idx = linhas.findIndex((l) => idKey(l.id) === idKey(id));
+    if (idx === -1) return;
     linhas[idx].quantidade = quantidade;
     const precoAtual = Number.isFinite(linhas[idx].preco)
       ? linhas[idx].preco
@@ -329,9 +344,11 @@
     notificarResumo();
   };
 
-  const onPrecoChange = (idx: number, valor: string) => {
+  const onPrecoChange = (id: string | number, valor: string) => {
     const n = parseNumero(valor);
     const preco = Number.isFinite(n) && n >= 0 ? n : 0;
+    const idx = linhas.findIndex((l) => idKey(l.id) === idKey(id));
+    if (idx === -1) return;
     linhas[idx].preco = preco;
     const quantidadeAtual = Number.isFinite(linhas[idx].quantidade)
       ? linhas[idx].quantidade
@@ -458,18 +475,21 @@
                   >{/if}
               </button>
             </th>
+            <th>Ações</th>
           </tr>
         </thead>
         <tbody>
           {#each linhasFiltradas as linha, idx}
             <tr
               class:selecionada={linhaSeleccionada === idx}
+              class:editando={editando.has(idKey(linha.id))}
               onclick={() => (linhaSeleccionada = idx)}
+              ondblclick={() => alternarEdicaoRow(linha.id)}
             >
               <td data-label="ID">{linha.id}</td>
               <td data-label="Descrição">{linha.descricao}</td>
               <td data-label="Quantidade">
-                {#if props.edicaoAtiva}
+                {#if editando.has(idKey(linha.id))}
                   <input
                     class="celula-input"
                     type="number"
@@ -478,7 +498,7 @@
                     value={linha.quantidade}
                     oninput={(e) =>
                       onQuantidadeChange(
-                        idx,
+                        linha.id,
                         (e.target as HTMLInputElement).value
                       )}
                   />
@@ -487,7 +507,7 @@
                 {/if}
               </td>
               <td data-label="Preço">
-                {#if props.edicaoAtiva}
+                {#if editando.has(idKey(linha.id))}
                   <input
                     class="celula-input"
                     type="number"
@@ -495,13 +515,27 @@
                     step="0.01"
                     value={linha.preco}
                     oninput={(e) =>
-                      onPrecoChange(idx, (e.target as HTMLInputElement).value)}
+                      onPrecoChange(
+                        linha.id,
+                        (e.target as HTMLInputElement).value
+                      )}
                   />
                 {:else}
                   {formatarMoeda(linha.preco)}
                 {/if}
               </td>
               <td data-label="Total">{formatarMoeda(linha.total)}</td>
+              <td data-label="Ações" class="acoes-cell">
+                {#if editando.has(idKey(linha.id))}
+                  <button
+                    class="btn-guardar"
+                    onclick={() => alternarEdicaoRow(linha.id)}
+                    title="Guardar alterações"
+                  >
+                    ✓
+                  </button>
+                {/if}
+              </td>
             </tr>
           {/each}
         </tbody>
@@ -611,6 +645,30 @@
 
   tbody tr.selecionada:hover {
     background: #bfdbfe;
+  }
+  tbody tr.editando {
+    background: #fff7ed; /* leve destaque para indicar edição */
+  }
+
+  .acoes-cell {
+    width: 80px;
+    text-align: center;
+  }
+
+  .btn-guardar {
+    padding: 0.35rem 0.65rem;
+    background: #10b981;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 600;
+    transition: background 150ms ease;
+  }
+
+  .btn-guardar:hover {
+    background: #059669;
   }
 
   .celula-input {

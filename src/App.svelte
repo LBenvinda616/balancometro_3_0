@@ -18,7 +18,6 @@
   let activeItem: MenuItem | null = null;
 
   // Controlo global (workspace)
-  let edicaoAtiva: boolean = false;
   let ficheiroSelecionado: File | null = null;
   let resumo = { totalProdutos: 0, somaTotal: 0 };
   let filtroId: string = "";
@@ -89,7 +88,6 @@
         <div class="workspace__main">
           <div class="panel fill">
             <Counter
-              {edicaoAtiva}
               ficheiro={ficheiroSelecionado}
               filtros={{
                 id: filtroId,
@@ -129,54 +127,44 @@
             </div>
 
             <div class="aside__section">
-              <p class="eyebrow">Edição</p>
-              <label class="switch">
-                <input type="checkbox" bind:checked={edicaoAtiva} />
-                <span class="slider" aria-hidden="true"></span>
-                <span class="rotulo">Permitir edição de quantidade e preço</span
-                >
+              <p class="eyebrow">Filtros</p>
+              <label>
+                <span class="resumo-label">ID</span>
+                <input
+                  class="celula-input"
+                  type="text"
+                  bind:value={filtroId}
+                  placeholder="ex.: 123"
+                />
               </label>
-
-              <div class="aside__section">
-                <p class="eyebrow">Filtros</p>
-                <label>
-                  <span class="resumo-label">ID</span>
+              <label>
+                <span class="resumo-label">Descrição</span>
+                <input
+                  class="celula-input"
+                  type="text"
+                  bind:value={filtroDescricao}
+                  placeholder="ex.: parafuso"
+                />
+              </label>
+              <div class="resumo-grid">
+                <label class="resumo-item">
+                  <span class="resumo-label">Preço min.</span>
                   <input
                     class="celula-input"
-                    type="text"
-                    bind:value={filtroId}
-                    placeholder="ex.: 123"
+                    type="number"
+                    step="0.01"
+                    bind:value={filtroPrecoMin}
                   />
                 </label>
-                <label>
-                  <span class="resumo-label">Descrição</span>
+                <label class="resumo-item">
+                  <span class="resumo-label">Preço máx.</span>
                   <input
                     class="celula-input"
-                    type="text"
-                    bind:value={filtroDescricao}
-                    placeholder="ex.: parafuso"
+                    type="number"
+                    step="0.01"
+                    bind:value={filtroPrecoMax}
                   />
                 </label>
-                <div class="resumo-grid">
-                  <label class="resumo-item">
-                    <span class="resumo-label">Preço min.</span>
-                    <input
-                      class="celula-input"
-                      type="number"
-                      step="0.01"
-                      bind:value={filtroPrecoMin}
-                    />
-                  </label>
-                  <label class="resumo-item">
-                    <span class="resumo-label">Preço máx.</span>
-                    <input
-                      class="celula-input"
-                      type="number"
-                      step="0.01"
-                      bind:value={filtroPrecoMax}
-                    />
-                  </label>
-                </div>
               </div>
             </div>
             <div class="aside__section">
