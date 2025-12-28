@@ -13,10 +13,17 @@
   let arquivoNome = $state("");
   let mensagemErro = $state("");
   let carregando = $state(false);
-  type Resumo = { totalProdutos: number; somaTotal: number };
+  type Resumo = {
+    totalProdutos: number;
+    somaTotal: number;
+    totalProdutosFiltrados: number;
+    somaTotalFiltrados: number;
+  };
   type Filtros = {
     id?: string;
     descricao?: string;
+    descricaoLevAtivo?: boolean;
+    descricaoLevPct?: number; // 0-1
     precoMin?: string;
     precoMax?: string;
   };
@@ -25,6 +32,7 @@
     filtros?: Filtros;
     onResumo?: (r: Resumo) => void;
     exportar?: number; // timestamp to trigger export
+    onEditingChange?: (ativo: boolean) => void;
   }>();
 
   const parseNumero = (valor: unknown): number => {
@@ -44,6 +52,24 @@
       return Number.isFinite(numero) ? numero : NaN;
     }
     return NaN;
+  };
+
+  // Permite expressões simples (ex.: "1.3 + 3.8") para edição inline de quantidade
+  const parseNumeroOuExpressao = (valor: unknown): number => {
+    if (typeof valor !== "string") return parseNumero(valor);
+    const texto = valor.trim();
+    if (!texto) return NaN;
+    const comPonto = texto.replace(/,/g, ".");
+    // Apenas dígitos, ponto, operadores básicos e parênteses
+    if (/[^0-9+\-*/().\s]/.test(comPonto)) return NaN;
+    try {
+      // Avaliação limitada a números e operadores permitidos
+      const resultado = Function('"use strict"; return (' + comPonto + ");")();
+      const n = Number(resultado);
+      return Number.isFinite(n) ? n : NaN;
+    } catch {
+      return NaN;
+    }
   };
 
   const importarFicheiro = async (file: File) => {
@@ -129,7 +155,16 @@
         })
         .filter(Boolean) as Linha[];
 
-      linhas = convertidas;
+      // Ordena por ID (padrão) ao carregar o ficheiro
+      const comparador = (a: Linha, b: Linha) => {
+        const idMeioA = extrairMeioID((a.id ?? "").toString());
+        const idMeioB = extrairMeioID((b.id ?? "").toString());
+        const na = Number(idMeioA) || 0;
+        const nb = Number(idMeioB) || 0;
+        return na - nb;
+      };
+
+      linhas = convertidas.sort(comparador);
       notificarResumo();
     } catch (error) {
       console.error(error);
@@ -170,17 +205,71 @@
   let linhaSeleccionada: number | null = $state(null);
   // Conjunto de linhas em edição (por ID) para permitir edição por linha via duplo clique
   let editando = $state(new Set<string>());
+  // Guarda valores originais para permitir cancelamento
+  let backups = $state(
+    new Map<string, Pick<Linha, "quantidade" | "preco" | "total">>()
+  );
 
   const idKey = (id: string | number) => (id != null ? String(id) : "");
-  const alternarEdicaoRow = (id: string | number) => {
+
+  const notificarEstadoEdicao = () => {
+    props.onEditingChange?.(editando.size > 0);
+  };
+
+  const iniciarEdicao = (id: string | number) => {
     const key = idKey(id);
+    if (editando.has(key)) return;
+    const idx = linhas.findIndex((l) => idKey(l.id) === key);
+    if (idx === -1) return;
     const novo = new Set(editando);
-    if (novo.has(key)) {
-      novo.delete(key);
-    } else {
-      novo.add(key);
-    }
+    novo.add(key);
     editando = novo;
+
+    const copia = { ...linhas[idx] };
+    const novoBackups = new Map(backups);
+    novoBackups.set(key, {
+      quantidade: copia.quantidade,
+      preco: copia.preco,
+      total: copia.total,
+    });
+    backups = novoBackups;
+    notificarEstadoEdicao();
+  };
+
+  const confirmarEdicao = (id: string | number) => {
+    const key = idKey(id);
+    if (!editando.has(key)) return;
+    const novo = new Set(editando);
+    novo.delete(key);
+    editando = novo;
+
+    const novoBackups = new Map(backups);
+    novoBackups.delete(key);
+    backups = novoBackups;
+    notificarResumo();
+    notificarEstadoEdicao();
+  };
+
+  const cancelarEdicao = (id: string | number) => {
+    const key = idKey(id);
+    const original = backups.get(key);
+    if (original) {
+      const idx = linhas.findIndex((l) => idKey(l.id) === key);
+      if (idx !== -1) {
+        linhas[idx].quantidade = original.quantidade;
+        linhas[idx].preco = original.preco;
+        linhas[idx].total = original.total;
+      }
+    }
+    const novo = new Set(editando);
+    novo.delete(key);
+    editando = novo;
+
+    const novoBackups = new Map(backups);
+    novoBackups.delete(key);
+    backups = novoBackups;
+    notificarResumo();
+    notificarEstadoEdicao();
   };
 
   const sortBy = (key: keyof Linha) => {
@@ -195,7 +284,15 @@
       const dir = sortAsc ? 1 : -1;
       const va = a[key];
       const vb = b[key];
-      if (key === "descricao" || key === "id") {
+      if (key === "id") {
+        // Ordenar ID por valor numérico dos 4 dígitos do meio
+        const idMeioA = extrairMeioID((va ?? "").toString());
+        const idMeioB = extrairMeioID((vb ?? "").toString());
+        const na = Number(idMeioA) || 0;
+        const nb = Number(idMeioB) || 0;
+        return (na - nb) * dir;
+      }
+      if (key === "descricao") {
         const sa = (va ?? "").toString().toLocaleLowerCase();
         const sb = (vb ?? "").toString().toLocaleLowerCase();
         if (sa < sb) return -1 * dir;
@@ -245,7 +342,12 @@
     return matriz[b.length][a.length];
   };
 
-  const fuzzyInclui = (texto: string, consulta: string) => {
+  const fuzzyInclui = (
+    texto: string,
+    consulta: string,
+    usarLevenshtein: boolean,
+    levPercent: number
+  ) => {
     const t = normalizar(texto);
     const q = normalizar(consulta);
 
@@ -259,7 +361,9 @@
       if (i === q.length) return true;
     }
 
-    // 3. Levenshtein para palavras individuais (misspellings)
+    // 3. Levenshtein opcional para palavras individuais (misspellings)
+    if (!usarLevenshtein) return false;
+
     const palavrasTexto = t.split(/\s+/);
     const palavrasConsulta = q.split(/\s+/);
 
@@ -269,7 +373,10 @@
       let encontrada = false;
       for (const pTexto of palavrasTexto) {
         const dist = levenshtein(pTexto, pConsulta);
-        const threshold = Math.max(1, Math.floor(pConsulta.length * 0.3)); // 30% de erro tolerado
+        const threshold = Math.max(
+          1,
+          Math.floor(pConsulta.length * Math.max(0, Math.min(1, levPercent)))
+        );
         if (dist <= threshold) {
           encontrada = true;
           break;
@@ -279,6 +386,38 @@
     }
 
     return palavrasConsulta.length > 0;
+  };
+
+  // Extrai os 4 dígitos do meio de um ID no formato 9XXXX9
+  const extrairMeioID = (id: string): string => {
+    const idStr = normalizar(id);
+    if (idStr.length === 6) {
+      return idStr.slice(1, 5);
+    }
+    return idStr;
+  };
+
+  // Converte padrão com '%' (wildcard para um caractere) em regex
+  // Ex: "123%" => /^123.$/,  "1%23" => /^1.23$/
+  // Se menos de 4 caracteres, preenche com '%' no final
+  // Máximo 3 wildcards permitidos
+  const padraoParaRegex = (padrao: string): RegExp | null => {
+    // Preenche com '%' no final se menos de 4 caracteres
+    let padraoPreenchido = padrao;
+    while (padraoPreenchido.length < 4) {
+      padraoPreenchido += "%";
+    }
+
+    const contagemWildcards = (padraoPreenchido.match(/%/g) || []).length;
+    if (contagemWildcards > 3) return null;
+
+    const escapado = padraoPreenchido.replace(/[.+*?^${}()|[\]\\]/g, "\\$&"); // escape caracteres especiais
+    const regexStr = escapado.replace(/%/g, "."); // substitui % por . (qualquer caractere)
+    try {
+      return new RegExp("^" + regexStr + "$");
+    } catch {
+      return null;
+    }
   };
 
   const aplicarFiltros = () => {
@@ -299,6 +438,8 @@
         : rawDesc != null
           ? String(rawDesc)
           : "";
+    const usarLev = props.filtros?.descricaoLevAtivo ?? false;
+    const levPct = props.filtros?.descricaoLevPct ?? 0.3;
 
     const min =
       rawMin == null || (typeof rawMin === "string" && rawMin.trim() === "")
@@ -309,14 +450,23 @@
         ? NaN
         : parseNumero(rawMax as any);
     linhasFiltradas = linhas.filter((l) => {
-      // ID
+      // ID - suporta busca com wildcard '%' (máx 3 wildcards)
       if (idQ) {
         const idStr = (l.id ?? "").toString();
-        if (!normalizar(idStr).includes(normalizar(idQ))) return false;
+        const idMeio = extrairMeioID(idStr);
+        const queryMeio = extrairMeioID(idQ);
+        const regex = padraoParaRegex(normalizar(queryMeio));
+        if (regex) {
+          if (!regex.test(normalizar(idMeio))) return false;
+        } else {
+          // Se padrão inválido, volta para substring simples
+          if (!normalizar(idMeio).includes(normalizar(queryMeio))) return false;
+        }
       }
-      // Descrição fuzzy
+      // Descrição fuzzy (substring + subsequência) e opcional Levenshtein
       if (descQ) {
-        if (!fuzzyInclui(l.descricao ?? "", descQ)) return false;
+        if (!fuzzyInclui(l.descricao ?? "", descQ, usarLev, levPct))
+          return false;
       }
       // Preço min
       if (!Number.isNaN(min) && l.preco < min) return false;
@@ -331,9 +481,36 @@
     aplicarFiltros();
   });
 
+  // Notifica resumo sempre que a lista filtrada muda
+  $effect(() => {
+    const _dep = linhasFiltradas.length;
+    notificarResumo();
+  });
+
+  const onEditorKeyDown = (event: KeyboardEvent, id: string | number) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      confirmarEdicao(id);
+    }
+  };
+
   const onQuantidadeChange = (id: string | number, valor: string) => {
-    const n = parseNumero(valor);
-    const quantidade = Number.isFinite(n) && n >= 0 ? n : 0;
+    const texto = valor ?? "";
+    if (texto.trim() === "") {
+      const idxVazio = linhas.findIndex((l) => idKey(l.id) === idKey(id));
+      if (idxVazio === -1) return;
+      linhas[idxVazio].quantidade = 0;
+      const precoAtualVazio = Number.isFinite(linhas[idxVazio].preco)
+        ? linhas[idxVazio].preco
+        : 0;
+      linhas[idxVazio].total = +(0 * precoAtualVazio).toFixed(2);
+      notificarResumo();
+      return;
+    }
+
+    const n = parseNumeroOuExpressao(texto);
+    if (!Number.isFinite(n) || n < 0) return; // mantém valor atual enquanto expressão é incompleta
+    const quantidade = n;
     const idx = linhas.findIndex((l) => idKey(l.id) === idKey(id));
     if (idx === -1) return;
     linhas[idx].quantidade = quantidade;
@@ -363,7 +540,19 @@
       (acc, l) => acc + (Number.isFinite(l.total) ? l.total : 0),
       0
     );
-    return { totalProdutos, somaTotal };
+
+    const totalProdutosFiltrados = linhasFiltradas.length;
+    const somaTotalFiltrados = linhasFiltradas.reduce(
+      (acc, l) => acc + (Number.isFinite(l.total) ? l.total : 0),
+      0
+    );
+
+    return {
+      totalProdutos,
+      somaTotal,
+      totalProdutosFiltrados,
+      somaTotalFiltrados,
+    };
   };
 
   const notificarResumo = () => {
@@ -484,7 +673,7 @@
               class:selecionada={linhaSeleccionada === idx}
               class:editando={editando.has(idKey(linha.id))}
               onclick={() => (linhaSeleccionada = idx)}
-              ondblclick={() => alternarEdicaoRow(linha.id)}
+              ondblclick={() => iniciarEdicao(linha.id)}
             >
               <td data-label="ID">{linha.id}</td>
               <td data-label="Descrição">{linha.descricao}</td>
@@ -492,10 +681,11 @@
                 {#if editando.has(idKey(linha.id))}
                   <input
                     class="celula-input"
-                    type="number"
-                    min="0"
-                    step="1"
+                    type="text"
+                    lang="en"
+                    inputmode="decimal"
                     value={linha.quantidade}
+                    onkeydown={(e) => onEditorKeyDown(e, linha.id)}
                     oninput={(e) =>
                       onQuantidadeChange(
                         linha.id,
@@ -513,7 +703,10 @@
                     type="number"
                     min="0"
                     step="0.01"
+                    lang="en"
+                    inputmode="decimal"
                     value={linha.preco}
+                    onkeydown={(e) => onEditorKeyDown(e, linha.id)}
                     oninput={(e) =>
                       onPrecoChange(
                         linha.id,
@@ -529,10 +722,17 @@
                 {#if editando.has(idKey(linha.id))}
                   <button
                     class="btn-guardar"
-                    onclick={() => alternarEdicaoRow(linha.id)}
+                    onclick={() => confirmarEdicao(linha.id)}
                     title="Guardar alterações"
                   >
                     ✓
+                  </button>
+                  <button
+                    class="btn-cancelar"
+                    onclick={() => cancelarEdicao(linha.id)}
+                    title="Cancelar alterações"
+                  >
+                    ✕
                   </button>
                 {/if}
               </td>
@@ -653,6 +853,10 @@
   .acoes-cell {
     width: 80px;
     text-align: center;
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
+    justify-content: center;
   }
 
   .btn-guardar {
@@ -669,6 +873,22 @@
 
   .btn-guardar:hover {
     background: #059669;
+  }
+
+  .btn-cancelar {
+    padding: 0.35rem 0.65rem;
+    background: #e11d48;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 600;
+    transition: background 150ms ease;
+  }
+
+  .btn-cancelar:hover {
+    background: #be123c;
   }
 
   .celula-input {
