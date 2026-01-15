@@ -1,8 +1,9 @@
 <script lang="ts">
   import Counter from "./lib/Counter.svelte";
+  import Merger from "./lib/Merger.svelte";
 
   type MenuItem = {
-    id: "counter";
+    id: "counter" | "merger";
     label: string;
     description: string;
   };
@@ -12,6 +13,11 @@
       id: "counter",
       label: "Contador",
       description: "Ferramenta de contagem simples e precisa.",
+    },
+    {
+      id: "merger",
+      label: "Combinar",
+      description: "Junte dois ficheiros Excel por ID de produto.",
     },
   ];
 
@@ -35,6 +41,16 @@
   let filtrosBloqueados = false;
   let precoMaxManual = false; // se o utilizador ajustar o preço máximo manualmente
 
+  const limparFiltros = () => {
+    filtroId = "";
+    filtroDescricao = "";
+    filtroDescricaoLev = false;
+    filtroDescricaoLevPercent = 30;
+    filtroPrecoMin = "";
+    filtroPrecoMax = "";
+    precoMaxManual = false;
+  };
+
   const formatarMoeda = (valor: number) =>
     new Intl.NumberFormat("pt-PT", {
       style: "currency",
@@ -52,7 +68,17 @@
   const triggerExport = () => {
     exportarTimestamp = Date.now();
   };
+
+  const handleAtalhos = (event: KeyboardEvent) => {
+    const tecla = event.key.toLowerCase();
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && tecla === "l") {
+      event.preventDefault();
+      limparFiltros();
+    }
+  };
 </script>
+
+<svelte:window on:keydown={handleAtalhos} />
 
 <main class="shell">
   {#if !activeItem}
@@ -148,6 +174,7 @@
                   bind:value={filtroId}
                   placeholder="ex.: 123"
                   disabled={filtrosBloqueados}
+                  tabindex="1"
                 />
               </label>
               <label>
@@ -158,6 +185,7 @@
                   bind:value={filtroDescricao}
                   placeholder="ex.: parafuso"
                   disabled={filtrosBloqueados}
+                  tabindex="2"
                 />
               </label>
               <div class="resumo-grid">
@@ -170,6 +198,7 @@
                     type="checkbox"
                     bind:checked={filtroDescricaoLev}
                     disabled={filtrosBloqueados}
+                    tabindex="3"
                   />
                 </label>
                 <label class="resumo-item" title="Percentagem de tolerância">
@@ -185,6 +214,7 @@
                         (e.target as HTMLInputElement).value
                       ))}
                     disabled={filtrosBloqueados || !filtroDescricaoLev}
+                    tabindex="4"
                   />
                   <span class="hint">{filtroDescricaoLevPercent}%</span>
                 </label>
@@ -210,6 +240,7 @@
                       }
                     }}
                     disabled={filtrosBloqueados}
+                    tabindex="5"
                   />
                 </label>
                 <label class="resumo-item">
@@ -229,9 +260,19 @@
                       }
                     }}
                     disabled={filtrosBloqueados}
+                    tabindex="6"
                   />
                 </label>
               </div>
+              <button
+                class="upload"
+                on:click={limparFiltros}
+                aria-keyshortcuts="Ctrl+Shift+L"
+                disabled={filtrosBloqueados}
+                tabindex="7"
+              >
+                Limpar filtros (Ctrl+Shift+L)
+              </button>
             </div>
             <div class="aside__section">
               <p class="eyebrow">Resumo</p>
@@ -262,6 +303,24 @@
             </div>
           </div>
         </aside>
+      </div>
+    </section>
+  {:else if activeItem.id === "merger"}
+    <section class="workspace workspace--fixed">
+      <header class="workspace__header">
+        <div>
+          <p class="eyebrow">Ferramenta</p>
+          <h2>{activeItem.label}</h2>
+        </div>
+        <button class="ghost" on:click={closeItem}>Voltar ao menu</button>
+      </header>
+
+      <div class="workspace__grid">
+        <div class="workspace__main">
+          <div class="panel fill">
+            <Merger />
+          </div>
+        </div>
       </div>
     </section>
   {/if}

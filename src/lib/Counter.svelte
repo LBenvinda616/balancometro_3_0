@@ -59,9 +59,13 @@
     if (typeof valor !== "string") return parseNumero(valor);
     const texto = valor.trim();
     if (!texto) return NaN;
-    const comPonto = texto.replace(/,/g, ".");
-    // Apenas dígitos, ponto, operadores básicos e parênteses
-    if (/[^0-9+\-*/().\s]/.test(comPonto)) return NaN;
+
+    // Remove espaços internos para permitir números longos e decimais em expressões
+    const semEspacos = texto.replace(/\s+/g, "");
+    const comPonto = semEspacos.replace(/,/g, ".");
+
+    // Apenas dígitos, ponto decimal, operadores básicos e parênteses
+    if (/[^0-9+\-*/().]/.test(comPonto)) return NaN;
     try {
       // Avaliação limitada a números e operadores permitidos
       const resultado = Function('"use strict"; return (' + comPonto + ");")();
@@ -209,11 +213,41 @@
   let backups = $state(
     new Map<string, Pick<Linha, "quantidade" | "preco" | "total">>()
   );
+  // Buffer de texto enquanto o utilizador edita quantidades (evita substituir expressão parcial)
+  let textoQuantidade = $state(new Map<string, string>());
 
   const idKey = (id: string | number) => (id != null ? String(id) : "");
 
   const notificarEstadoEdicao = () => {
     props.onEditingChange?.(editando.size > 0);
+  };
+
+  const aplicarQuantidadeBuffer = (key: string): boolean => {
+    const texto = textoQuantidade.get(key);
+    if (texto == null) return true;
+    const trimmed = texto.trim();
+    const idx = linhas.findIndex((l) => idKey(l.id) === key);
+    if (idx === -1) return true;
+
+    if (trimmed === "") {
+      linhas[idx].quantidade = 0;
+      const precoAtual = Number.isFinite(linhas[idx].preco)
+        ? linhas[idx].preco
+        : 0;
+      linhas[idx].total = +(0 * precoAtual).toFixed(2);
+      return true;
+    }
+
+    const n = parseNumeroOuExpressao(trimmed);
+    if (!Number.isFinite(n) || n < 0) return false;
+
+    const quantidade = n;
+    linhas[idx].quantidade = quantidade;
+    const precoAtual = Number.isFinite(linhas[idx].preco)
+      ? linhas[idx].preco
+      : 0;
+    linhas[idx].total = +(quantidade * precoAtual).toFixed(2);
+    return true;
   };
 
   const iniciarEdicao = (id: string | number) => {
@@ -233,12 +267,23 @@
       total: copia.total,
     });
     backups = novoBackups;
+
+    const novoTextoQtd = new Map(textoQuantidade);
+    novoTextoQtd.set(key, String(copia.quantidade ?? ""));
+    textoQuantidade = novoTextoQtd;
     notificarEstadoEdicao();
   };
 
   const confirmarEdicao = (id: string | number) => {
     const key = idKey(id);
     if (!editando.has(key)) return;
+
+    const ok = aplicarQuantidadeBuffer(key);
+    if (!ok) {
+      mensagemErro = "Quantidade inválida. Confirme a expressão.";
+      return;
+    }
+    mensagemErro = "";
     const novo = new Set(editando);
     novo.delete(key);
     editando = novo;
@@ -246,6 +291,10 @@
     const novoBackups = new Map(backups);
     novoBackups.delete(key);
     backups = novoBackups;
+
+    const novoTextoQtd = new Map(textoQuantidade);
+    novoTextoQtd.delete(key);
+    textoQuantidade = novoTextoQtd;
     notificarResumo();
     notificarEstadoEdicao();
   };
@@ -268,6 +317,10 @@
     const novoBackups = new Map(backups);
     novoBackups.delete(key);
     backups = novoBackups;
+
+    const novoTextoQtd = new Map(textoQuantidade);
+    novoTextoQtd.delete(key);
+    textoQuantidade = novoTextoQtd;
     notificarResumo();
     notificarEstadoEdicao();
   };
@@ -494,31 +547,29 @@
     }
   };
 
+  const onQuantidadeFocus = (
+    id: string | number,
+    inputEl: HTMLInputElement
+  ) => {
+    const key = idKey(id);
+    const idx = linhas.findIndex((l) => idKey(l.id) === key);
+    const atual =
+      textoQuantidade.get(key) ??
+      (idx !== -1 ? String(linhas[idx].quantidade ?? "") : "");
+    if (atual.trim() === "0") {
+      const novoTextoQtd = new Map(textoQuantidade);
+      novoTextoQtd.set(key, "");
+      textoQuantidade = novoTextoQtd;
+      inputEl.value = "";
+    }
+  };
+
   const onQuantidadeChange = (id: string | number, valor: string) => {
     const texto = valor ?? "";
-    if (texto.trim() === "") {
-      const idxVazio = linhas.findIndex((l) => idKey(l.id) === idKey(id));
-      if (idxVazio === -1) return;
-      linhas[idxVazio].quantidade = 0;
-      const precoAtualVazio = Number.isFinite(linhas[idxVazio].preco)
-        ? linhas[idxVazio].preco
-        : 0;
-      linhas[idxVazio].total = +(0 * precoAtualVazio).toFixed(2);
-      notificarResumo();
-      return;
-    }
-
-    const n = parseNumeroOuExpressao(texto);
-    if (!Number.isFinite(n) || n < 0) return; // mantém valor atual enquanto expressão é incompleta
-    const quantidade = n;
-    const idx = linhas.findIndex((l) => idKey(l.id) === idKey(id));
-    if (idx === -1) return;
-    linhas[idx].quantidade = quantidade;
-    const precoAtual = Number.isFinite(linhas[idx].preco)
-      ? linhas[idx].preco
-      : 0;
-    linhas[idx].total = +(quantidade * precoAtual).toFixed(2);
-    notificarResumo();
+    const key = idKey(id);
+    const novoTextoQtd = new Map(textoQuantidade);
+    novoTextoQtd.set(key, texto);
+    textoQuantidade = novoTextoQtd;
   };
 
   const onPrecoChange = (id: string | number, valor: string) => {
@@ -532,6 +583,14 @@
       : 0;
     linhas[idx].total = +(quantidadeAtual * preco).toFixed(2);
     notificarResumo();
+  };
+
+  const onPrecoFocus = (id: string | number, inputEl: HTMLInputElement) => {
+    const idx = linhas.findIndex((l) => idKey(l.id) === idKey(id));
+    const atual = idx !== -1 ? linhas[idx].preco : "";
+    if (String(atual ?? "").trim() === "0") {
+      inputEl.value = "";
+    }
   };
 
   const calcularResumo = (): Resumo => {
@@ -684,7 +743,10 @@
                     type="text"
                     lang="en"
                     inputmode="decimal"
-                    value={linha.quantidade}
+                    value={textoQuantidade.get(idKey(linha.id)) ??
+                      linha.quantidade}
+                    onfocus={(e) =>
+                      onQuantidadeFocus(linha.id, e.target as HTMLInputElement)}
                     onkeydown={(e) => onEditorKeyDown(e, linha.id)}
                     oninput={(e) =>
                       onQuantidadeChange(
@@ -700,12 +762,13 @@
                 {#if editando.has(idKey(linha.id))}
                   <input
                     class="celula-input"
-                    type="number"
-                    min="0"
-                    step="0.01"
+                    type="text"
                     lang="en"
                     inputmode="decimal"
+                    pattern="[0-9.,]*"
                     value={linha.preco}
+                    onfocus={(e) =>
+                      onPrecoFocus(linha.id, e.target as HTMLInputElement)}
                     onkeydown={(e) => onEditorKeyDown(e, linha.id)}
                     oninput={(e) =>
                       onPrecoChange(
